@@ -23,6 +23,7 @@ all evaluation assets and appends structured markdown insights straight back to 
 ## Target Project Configuration Tree
 
 ```text
+
 Auto-ImageProcessing-Dockerized/
 ├── pyproject.toml              # Project workspace settings
 ├── uv.lock                    # Deterministic dependency tracking
@@ -43,10 +44,12 @@ Auto-ImageProcessing-Dockerized/
     ├── forest_sector_a/
     │   └── history.md          # Continuous evolutionary context journal
     └── valley_viewpoint/
-        └── history.md          # Continuous evolutionary context journal```
-```text
+        └── history.md          # Continuous evolutionary context journal
+
+```
 
 ## Operational Data Lifecycle Flow
+
 ```text
 [1. HOST FILESYSTEM] ──( New Image Dropped )──> [2. WATCHER.PY (Container)]
                                                           │
@@ -57,7 +60,8 @@ Auto-ImageProcessing-Dockerized/
   ( Evaluates Drift )                                     │ ( Appends Update )
          ▼                                                ▼
 [ Structured JSON ]                             [5. CATEGORIES/HISTORY.MD]
-```text
+
+```
 
 ## Environment & Dependency Management
 
