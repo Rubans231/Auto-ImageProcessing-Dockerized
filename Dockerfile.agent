@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system utilities needed for building low-level database extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-cache your exact Python dependencies matrix
+RUN pip install --no-cache-dir \
+    ollama \
+    pillow \
+    mempalace \
+    watchdog
+
+# Keep paths standard inside the runtime workspace
+ENV PYTHONUNBUFFERED=1
+
+# Application execution commands are handled explicitly by docker-compose commands
