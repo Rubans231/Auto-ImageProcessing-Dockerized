@@ -1,14 +1,36 @@
 version: "3.8"
 
 services:
-  # Service 1: The Accelerated LLM Core Execution Layer
+# Service 1: The Accelerated LLM Core Execution Layer
   ollama-core:
     image: ollama/ollama:latest
     container_name: ollama_core
     restart: unless-stopped
     volumes:
       - ollama_storage:/root/.ollama
-    # Expose CUDA cores straight through the container walls
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /bin/ollama serve &
+        
+        sleep 5
+        
+        echo "=== Checking System Volume Cache ==="
+        if /bin/ollama list | grep -q "gemma4:e4b"; then
+          echo "=== Success: Model 'gemma4:e4b' detected. Skipping download phase ==="
+        else
+          echo "=== Model not found or incomplete. Initiating resilient pull... ==="
+          
+          # Loop until the ollama pull command exits with a true 0 status code
+          until /bin/ollama pull gemma4:e4b; do
+            echo "=== Pull interrupted (Network drop/EOF). Retrying in 3 seconds... ==="
+            sleep 3
+          done
+          
+          echo "=== Sync complete: Model weights 100% verified ==="
+        fi
+        
+        wait
     deploy:
       resources:
         reservations:
@@ -31,6 +53,7 @@ services:
       - ./src:/app/src
       - ./snapshots:/app/snapshots
       - ./categories:/app/categories
+      - ./workspace:/app/workspace  # Shared directory layout mapping
       - shared_socket:/app/run/img_engine
       - mempalace_data:/app/run/mempalace_db
     depends_on:
@@ -46,7 +69,7 @@ services:
     command: python src/watcher.py
     volumes:
       - ./src:/app/src
-      - ./workspace:/app/workspace
+      - ./workspace:/app/workspace  # Shared identical footprint layout mapping
       - shared_socket:/app/run/img_engine
     depends_on:
       - agent-server
