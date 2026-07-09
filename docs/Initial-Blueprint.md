@@ -44,13 +44,10 @@ Auto-ImageProcessing-Dockerized/
     │   └── history.md          # Continuous evolutionary context journal
     └── valley_viewpoint/
         └── history.md          # Continuous evolutionary context journal```
-```
-```
+```text
 
 ## Operational Data Lifecycle Flow
-
 ```text
-```
 [1. HOST FILESYSTEM] ──( New Image Dropped )──> [2. WATCHER.PY (Container)]
                                                           │
                                                 ( Unix Domain Socket IPC )
@@ -60,8 +57,7 @@ Auto-ImageProcessing-Dockerized/
   ( Evaluates Drift )                                     │ ( Appends Update )
          ▼                                                ▼
 [ Structured JSON ]                             [5. CATEGORIES/HISTORY.MD]
-```
-```
+```text
 
 ## Environment & Dependency Management
 
