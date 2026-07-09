@@ -2,7 +2,7 @@
 
 This document outlines the multi-container microservice orchestration for the Autonomous Context Agent Pipeline, replacing the legacy local virtual environment (`.venv`) setup.
 
-## 🏗️ Core Architecture Diagram
+##  Core Architecture Diagram
 
 The system operates as an event-driven loop across isolated container boundaries using Unix Domain Sockets (UDS) and local network bridges:
 
@@ -47,7 +47,7 @@ graph TD
 ```
 ---
 
-## 📦 Container Layout & Service Responsibilities
+##  Container Layout & Service Responsibilities
 
 ### 1. `agent-watcher`
 * **Runtime:** Python 3.11-slim
