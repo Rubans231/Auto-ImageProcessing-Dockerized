@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  # Service 1: The Accelerated LLM Core Execution Layer
+  ollama-core:
+    image: ollama/ollama:latest
+    container_name: ollama_core
+    restart: unless-stopped
+    volumes:
+      - ollama_storage:/root/.ollama
+    # Expose CUDA cores straight through the container walls
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Service 2: The Socket Analytical API Webserver
+  agent-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: agent_server
+    restart: unless-stopped
+    command: python src/server.py
+    environment:
+      - OLLAMA_HOST=http://ollama-core:11434
+    volumes:
+      - ./src:/app/src
+      - ./snapshots:/app/snapshots
+      - ./categories:/app/categories
+      - shared_socket:/app/run/img_engine
+      - mempalace_data:/app/run/mempalace_db
+    depends_on:
+      - ollama-core
+
+  # Service 3: The Filesystem Hot-Folder Observer Listener
+  agent-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: agent_watcher
+    restart: unless-stopped
+    command: python src/watcher.py
+    volumes:
+      - ./src:/app/src
+      - ./workspace:/app/workspace
+      - shared_socket:/app/run/img_engine
+    depends_on:
+      - agent-server
+
+volumes:
+  ollama_storage:
+  mempalace_data:
+  shared_socket: # Named volume allows IPC socket coordination between server and watcher
