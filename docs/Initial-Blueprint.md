@@ -22,43 +22,58 @@ all evaluation assets and appends structured markdown insights straight back to 
 
 ## Target Project Configuration Tree
 
-  Auto-ImageProcessing-Dockerized/
-  ├── pyproject.toml   # Modern project workspace settings file
-  ├── uv.lock          # Deterministic package dependency tracking file
-  ├── .venv/           # Local warehouse for downloaded wheel environments
-  ├── input/           # Target ingest zone tracked by host watcher
-  ├── snapshots/       # Timeline capture zone (history/YYYY-MM-DD/HH-MM-SS/)
-  ├── run/
-  │ └── img_engine/
-  │ └── engine.sock    # Inter-process loopback UDS channel file
-  ├── src/
-  │ ├── watcher.py     # Local folder kernel event monitor
-  │ └── server.py      # Context-aware orchestrator & local VLM wrapper
-  └── categories/
-  ├── forest_sector_a/
-  │ └── history.md     # Continuous evolutionary context journal
-  └── valley_viewpoint/
-  └── history.md       # Continuous evolutionary context journal
+```mermaid
+graph LR
+    %% Style definitions
+    classDef root fill:#222,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef config fill:#334,stroke:#88a,stroke-width:1px,color:#ddd;
+    classDef folder fill:#2c3e50,stroke:#34495e,stroke-width:1px,color:#ecf0f1;
+    classDef script fill:#27ae60,stroke:#2ecc71,stroke-width:1px,color:#fff;
 
+    %% Directory Structure Layout
+    ROOT[Auto-ImageProcessing-Dockerized/] :::root
+    
+    %% Root Configs
+    ROOT --> PY[pyproject.toml] :::config
+    ROOT --> UV[uv.lock] :::config
+    ROOT --> DK[docker-compose.yml] :::config
+    
+    %% Directories
+    ROOT --> INPUT[workspace/input/] :::folder
+    ROOT --> RUN[run/img_engine/] :::folder
+    ROOT --> SRC[src/] :::folder
+    ROOT --> CAT[categories/] :::folder
+    
+    %% Inside Directories
+    RUN --> SOCK([engine.sock - UDS IPC Channel]) :::config
+    SRC --> WATCH[watcher.py - Kernel Monitor] :::script
+    SRC --> SERV[server.py - Orchestrator] :::script
+    
+    CAT --> FOREST[forest_sector_a/] :::folder
+    CAT --> VALLEY[valley_viewpoint/] :::folder
+    
+    FOREST --> HIST1([history.md - Context Journal]) :::config
+    VALLEY --> HIST2([history.md - Context Journal]) :::config
+```
 
 ## Operational Data Lifecycle Flow
 
-[New Image Written to /input] 
-             │
-             ▼
-[watcher.py Intercepts Kernel on_closed Event]
-             │
-             ▼ (Dispatches Payload over engine.sock)
-[server.py Scans /categories/* Directories]
-             │
-             ▼ (Compiles All active history.md Content)
-[In-Context Prompt Payload Dispatched to Qwen-2.5-VL]
-             │
-             ▼ (Model Evaluates Input vs. Historical States)
-[UDS Server Parses JSON Delineating Drift Metrics]
-             │
-             ├──► [Generates Snapshots Mirror Room for Audit Trail]
-             └──► [Appends Structured Analysis Block to Selected history.md]
+sequenceDiagram
+    autonumber
+    actor Host as Host File System
+    participant Watcher as src/watcher.py (Container)
+    participant Server as src/server.py (Container)
+    participant VLM as Qwen-2.5-VL via Ollama
+    participant Journal as categories/ history.md
+
+    Host->>Watcher: New Image Written to /input/ (on_closed kernel event)
+    Watcher->>Server: Dispatches file path payload over engine.sock (UDS IPC)
+    Note over Server: Scans categories/* directories<br/>& compiles active history.md journals
+    Server->>VLM: Dispatches Image + Historical Context text matrix
+    Note over VLM: Evaluates input vs. historical states
+    VLM-->>Server: Returns structured JSON (Delineating Drift/Anomalies)
+    Server->>Host: Generates visual snapshot mirror room (Audit Trail)
+    Server->>Journal: Appends markdown insights block to target history.md
 
 
 ## Environment & Dependency Management
