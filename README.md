@@ -11,6 +11,8 @@ An intelligent, microservice-based autonomous image analytics pipeline. It combi
 ## Documentation
 
 * **Initial Blueprint:** [Initial Blueprint](docs/Initial-Blueprint.md) – Project masterplan, cognitive evaluation lifecycle loops, and foundational data management schemas.
+* **System Architecture:** [System Architecture & Lifecycle Guide](docs/architecture.md) — Detailed microservice definitions, container topology diagrams, and orchestration maintenance instructions.
+
 
 ## Quick Start (Docker Compose)
 
