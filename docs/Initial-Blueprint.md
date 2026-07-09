@@ -30,22 +30,22 @@ graph LR
     classDef folder fill:#2c3e50,stroke:#34495e,stroke-width:1px,color:#ecf0f1;
     classDef script fill:#27ae60,stroke:#2ecc71,stroke-width:1px,color:#fff;
 
-    %% 1. Explicitly declare nodes and attach styling classes
-    ROOT[Auto-ImageProcessing-Dockerized/] :::root
-    PY[pyproject.toml] :::config
-    UV[uv.lock] :::config
-    DK[docker-compose.yml] :::config
-    INPUT[workspace/input/] :::folder
-    RUN[run/img_engine/] :::folder
-    SRC[src/] :::folder
-    CAT[categories/] :::folder
-    SOCK([engine.sock - UDS IPC Channel]) :::config
-    WATCH[watcher.py - Kernel Monitor] :::script
-    SERV[server.py - Orchestrator] :::script
-    FOREST[forest_sector_a/] :::folder
-    VALLEY[valley_viewpoint/] :::folder
-    HIST1([history.md - Context Journal]) :::config
-    HIST2([history.md - Context Journal]) :::config
+    %% 1. Explicitly declare nodes (Escaped with double quotes for slashes)
+    ROOT["Auto-ImageProcessing-Dockerized/"] :::root
+    PY["pyproject.toml"] :::config
+    UV["uv.lock"] :::config
+    DK["docker-compose.yml"] :::config
+    INPUT["workspace/input/"] :::folder
+    RUN["run/img_engine/"] :::folder
+    SRC["src/"] :::folder
+    CAT["categories/"] :::folder
+    SOCK(["engine.sock - UDS IPC Channel"]) :::config
+    WATCH["watcher.py - Kernel Monitor"] :::script
+    SERV["server.py - Orchestrator"] :::script
+    FOREST["forest_sector_a/"] :::folder
+    VALLEY["valley_viewpoint/"] :::folder
+    HIST1(["history.md - Context Journal"]) :::config
+    HIST2(["history.md - Context Journal"]) :::config
 
     %% 2. Draw clean connection branches completely free of token symbols
     ROOT --> PY
@@ -65,7 +65,6 @@ graph LR
     
     FOREST --> HIST1
     VALLEY --> HIST2
-```
 
 ## Operational Data Lifecycle Flow
 
@@ -75,7 +74,7 @@ sequenceDiagram
     participant Watcher as src/watcher.py (Container)
     participant Server as src/server.py (Container)
     participant VLM as Gemma-4:e4b via Ollama
-    participant Journal as categories/ history.md
+    participant Journal as categories/history.md
 
     Host->>Watcher: New Image Written to /input/ (on_closed kernel event)
     Watcher->>Server: Dispatches file path payload over engine.sock (UDS IPC)
