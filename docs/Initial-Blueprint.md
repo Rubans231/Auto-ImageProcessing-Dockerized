@@ -22,68 +22,40 @@ all evaluation assets and appends structured markdown insights straight back to 
 
 ## Target Project Configuration Tree
 
-```mermaid
-graph LR
-    %% Style definitions
-    classDef root fill:#222,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef config fill:#334,stroke:#88a,stroke-width:1px,color:#ddd;
-    classDef folder fill:#2c3e50,stroke:#34495e,stroke-width:1px,color:#ecf0f1;
-    classDef script fill:#27ae60,stroke:#2ecc71,stroke-width:1px,color:#fff;
-
-    %% 1. Explicitly declare nodes (Escaped with double quotes for slashes)
-    ROOT["Auto-ImageProcessing-Dockerized/"] :::root
-    PY["pyproject.toml"] :::config
-    UV["uv.lock"] :::config
-    DK["docker-compose.yml"] :::config
-    INPUT["workspace/input/"] :::folder
-    RUN["run/img_engine/"] :::folder
-    SRC["src/"] :::folder
-    CAT["categories/"] :::folder
-    SOCK(["engine.sock - UDS IPC Channel"]) :::config
-    WATCH["watcher.py - Kernel Monitor"] :::script
-    SERV["server.py - Orchestrator"] :::script
-    FOREST["forest_sector_a/"] :::folder
-    VALLEY["valley_viewpoint/"] :::folder
-    HIST1(["history.md - Context Journal"]) :::config
-    HIST2(["history.md - Context Journal"]) :::config
-
-    %% 2. Draw clean connection branches completely free of token symbols
-    ROOT --> PY
-    ROOT --> UV
-    ROOT --> DK
-    ROOT --> INPUT
-    ROOT --> RUN
-    ROOT --> SRC
-    ROOT --> CAT
-    
-    RUN --> SOCK
-    SRC --> WATCH
-    SRC --> SERV
-    
-    CAT --> FOREST
-    CAT --> VALLEY
-    
-    FOREST --> HIST1
-    VALLEY --> HIST2
+```text
+Auto-ImageProcessing-Dockerized/
+├── pyproject.toml              # Project workspace settings
+├── uv.lock                    # Deterministic dependency tracking
+├── docker-compose.yml          # Multi-service container orchestration
+│
+├── workspace/
+│   └── input/                  # Host ingestion hot-folder (Mounted Volume)
+│
+├── run/
+│   └── img_engine/
+│       └── engine.sock         # Inter-process UDS IPC channel file
+│
+├── src/
+│   ├── watcher.py              # File-system kernel event monitor
+│   └── server.py               # Context-aware orchestrator / VLM driver
+│
+└── categories/
+    ├── forest_sector_a/
+    │   └── history.md          # Continuous evolutionary context journal
+    └── valley_viewpoint/
+        └── history.md          # Continuous evolutionary context journal```
 
 ## Operational Data Lifecycle Flow
 
-sequenceDiagram
-    autonumber
-    actor Host as Host File System
-    participant Watcher as src/watcher.py (Container)
-    participant Server as src/server.py (Container)
-    participant VLM as Gemma-4:e4b via Ollama
-    participant Journal as categories/history.md
-
-    Host->>Watcher: New Image Written to /input/ (on_closed kernel event)
-    Watcher->>Server: Dispatches file path payload over engine.sock (UDS IPC)
-    Note over Server: Scans categories/* directories<br/>& compiles active history.md journals
-    Server->>VLM: Dispatches Image + Historical Context text matrix
-    Note over VLM: Evaluates input vs. historical states
-    VLM-->>Server: Returns structured JSON (Delineating Drift/Anomalies)
-    Server->>Host: Generates visual snapshot mirror room (Audit Trail)
-    Server->>Journal: Appends markdown insights block to target history.md
+[1. HOST FILESYSTEM] ──( New Image Dropped )──> [2. WATCHER.PY (Container)]
+                                                          │
+                                                ( Unix Domain Socket IPC )
+                                                          ▼
+[4. GEMMA-4:E4B (Ollama)] <──( Image+Context Matrix )── [3. SERVER.PY (Container)]
+         │                                                │
+  ( Evaluates Drift )                                     │ ( Appends Update )
+         ▼                                                ▼
+[ Structured JSON ]                             [5. CATEGORIES/HISTORY.MD]
 
 
 ## Environment & Dependency Management
