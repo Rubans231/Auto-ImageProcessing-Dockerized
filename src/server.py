@@ -1,119 +1,209 @@
 import asyncio
 import os
 import json
-import urllib.request
+import shutil
+import subprocess
+from datetime import datetime
+import ollama
+from PIL import Image, ImageStat
 
-# Absolute paths mapped relative to this script's location
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SOCKET_PATH = os.path.join(PROJECT_ROOT, "run/img_engine/engine.sock")
-WORKFLOW_PATH = os.path.join(PROJECT_ROOT, "workflows/workflow_api.json")
+SNAPSHOTS_DIR = os.path.join(PROJECT_ROOT, "snapshots")
+PALACE_DIR = os.path.join(PROJECT_ROOT, "run/mempalace_db")
+MODEL_NAME = "gemma4:e4b"
 
-COMFYUI_ADDRESS = "127.0.0.1:8188"
+# Ensure runtime directories are strictly present on boot
+os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
+os.makedirs(PALACE_DIR, exist_ok=True)
+
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+async_client = ollama.AsyncClient(host=OLLAMA_HOST)
 
 
-def run_comfyui_pipeline(image_path):
-    """Loads the ComfyUI API JSON graph and injects the dynamic image path into Node ID '1'."""
-    if not os.path.exists(WORKFLOW_PATH):
-        return f"ERROR: API workflow file missing at {WORKFLOW_PATH}"
+def calculate_luminance(image_path):
+    """Calculates the average perceived luminance of an image using Grayscale RMS."""
+    try:
+        with Image.open(image_path) as img:
+            gray_img = img.convert("L")
+            stat = ImageStat.Stat(gray_img)
+            return stat.rms[0]  # Value bounds range between 0.0 and 255.0
+    except Exception as e:
+        print(f"❌ [CRITICAL] Failed to read image file headers: {e}")
+        return 0
+
+
+async def analyze_image_with_vlm(image_path, is_twilight=False):
+    """Communicates directly with your local Qwen 3.6 MoE model layer."""
+    filename = os.path.basename(image_path)
+    time_context = "Daylight timeline (high baseline visibility)."
+    if is_twilight:
+        time_context = (
+            "Twilight transition timeline (dim lighting, high shadow casting bounds)."
+        )
+
+    prompt = f"""
+    You are an autonomous spatial analytics tracking agent monitoring long-term environmental drift.
+    Analyze the provided image and extract physical shifts compared to typical dataset folder baselines.
+    
+    CORE ENVIRONMENT RUNTIME DATA:
+    - Target File Asset: {filename}
+    - Light Context Window: {time_context}
+    
+    CRITICAL INSTRUCTIONS:
+    Identify environmental alterations (canopy changes, leaf drop, tree structure, erosion, terrain shifts), 
+    count any human presence, and flag novel artifacts or missing objects compared to standard baseline frames.
+    
+    You MUST output a raw JSON object string matching exactly this schema layout:
+    {{
+        "suggested_category": "string_folder_name",
+        "environmental_drift_detected": true/false,
+        "metrics": {{
+            "human_density_count": 0,
+            "novel_objects_detected": ["item_a"],
+            "missing_objects": []
+        }},
+        "detailed_log": "A descriptive, natural, non-robotic analysis detailing the physical scene elements."
+    }}
+    Output ONLY the raw valid JSON string. Do not append Markdown code blocks, backticks, or conversational text.
+    """
+
+    response = await async_client.generate(
+        model=MODEL_NAME, prompt=prompt, images=[image_path]
+    )
+    result_text = response["response"].strip()
+
+    # Clean up any potential markdown backtick blocks from the output
+    if result_text.startswith("```json"):
+        result_text = result_text.split("```json")[1].split("```")[0].strip()
+    elif result_text.startswith("```"):
+        result_text = result_text.split("```")[1].split("```")[0].strip()
+
+    return json.loads(result_text)
+
+
+def commit_to_mempalace(category, log_string):
+    """Programmatically pipes the log string into MemPalace via its CLI layer."""
+    # Write log content to a temporary workspace file that MemPalace can mine
+    tmp_log_path = os.path.join(PROJECT_ROOT, f"run/tmp_mem_{category}.txt")
+    os.makedirs(os.path.dirname(tmp_log_path), exist_ok=True)
+
+    with open(tmp_log_path, "w", encoding="utf-8") as f:
+        f.write(log_string)
 
     try:
-        with open(WORKFLOW_PATH, "r") as f:
-            prompt_graph = json.load(f)
+        # Use the MemPalace CLI mining command to register the memory verbatim
+        # Mapping category directly to Wing keeps your databases safely separated
+        subprocess.run(
+            [
+                "mempalace",
+                "mine",
+                tmp_log_path,
+                "--wing",
+                category,
+                "--room",
+                "environmental_drift",
+            ],
+            cwd=PALACE_DIR,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     except Exception as e:
-        return f"ERROR: Failed to read workflow JSON -> {str(e)}"
+        print(f"⚠️ [WARNING] MemPalace CLI ingestion pipe encountered a hitch: {e}")
+    finally:
+        if os.path.exists(tmp_log_path):
+            os.remove(tmp_log_path)
 
-    # 🎯 TARGETING NODE ID "1" FROM YOUR COMFYUI API GRAPH
-    TARGET_NODE_ID = "1"
 
-    if TARGET_NODE_ID in prompt_graph:
-        prompt_graph[TARGET_NODE_ID]["inputs"]["image"] = image_path
-    else:
-        return f"ERROR: Node ID '{TARGET_NODE_ID}' not found in the workflow JSON graph structure."
-
-    # Construct the execution payload packet for ComfyUI's internal loop
-    payload = {"prompt": prompt_graph}
-    data = json.dumps(payload).encode("utf-8")
-
-    try:
-        url = f"http://{COMFYUI_ADDRESS}/prompt"
-        req = urllib.request.Request(url, data=data)
-        req.add_header("Content-Type", "application/json")
-
-        with urllib.request.urlopen(req) as response:
-            return response.read().decode("utf-8")
-    except Exception as e:
-        return f"ERROR: Failed to forward execution request to ComfyUI port -> {str(e)}"
+def archive_snapshot(image_path, date_str, time_str, analysis_summary):
+    """Creates a chronological historical storage archive of the transaction."""
+    snapshot_path = os.path.join(SNAPSHOTS_DIR, date_str, time_str)
+    os.makedirs(snapshot_path, exist_ok=True)
+    shutil.copy(image_path, os.path.join(snapshot_path, os.path.basename(image_path)))
+    with open(os.path.join(snapshot_path, "analytics_conclusion.json"), "w") as f:
+        json.dump(analysis_summary, f, indent=2)
 
 
 async def handle_client(reader, writer):
-    """Processes incoming data streams arriving over the Unix Domain Socket."""
-    print("[SERVER] Client connected via engine.sock!")
+    data = await reader.read(2048)
+    if not data:
+        return
+
+    now = datetime.now()
+    date_str, time_str = now.strftime("%Y-%m-%d"), now.strftime("%H-%M-%S")
+
     try:
-        data = await reader.read(2048)
-        if data:
-            payload_raw = data.decode("utf-8").strip()
-            print(f"[SERVER] Intercepted incoming payload: {payload_raw}")
+        job = json.loads(data.decode("utf-8").strip())
+        image_path = job.get("image_path")
+        filename = os.path.basename(image_path)
 
-            # Parse the JSON packet sent by watcher.py
-            job_config = json.loads(payload_raw)
-            image_path = job_config.get("image_path")
+        print(f"\n┠─ 📥 [INGESTION] Processing incoming drop element: {filename}")
 
-            if not image_path:
-                response_msg = "ERROR: Missing 'image_path' key in payload packet.\n"
-            else:
-                print(
-                    f"[SERVER] Routing target asset to ComfyUI pipeline: {image_path}"
-                )
-                # Dispatch execution down to the ComfyUI API endpoint
-                api_response = run_comfyui_pipeline(image_path)
-                response_msg = (
-                    f"SUCCESS: ComfyUI processing loop triggered -> {api_response}\n"
-                )
+        # 1. Run L1 Light Density Guardrail
+        luminance = calculate_luminance(image_path)
+        print(f"┃  ┣━━ Pixel Intensity: {luminance:.2f} RMS")
 
-            # Write back acknowledgment verification down the pipe to the watcher client
-            writer.write(response_msg.encode("utf-8"))
-            await writer.drain()
+        if luminance < 2.0:
+            print(
+                f"┠─ 🌙 [PRE-FILTER] Dropping pitch black night frame. Terminating VLM compute line."
+            )
+            analysis = {
+                "suggested_category": "unknown",
+                "environmental_drift_detected": False,
+                "metrics": {"status": "Nocturnal / Zero Visibility"},
+                "detailed_log": "Asset automatically dropped by L1 pre-filter due to low light values.",
+            }
+            archive_snapshot(image_path, date_str, time_str, analysis)
+            writer.write(b"SUCCESS: Night frame archived without compute footprint.\n")
+            return
 
-    except json.JSONDecodeError:
-        print("[SERVER] Error: Received malformed, non-JSON data packet over socket.")
-        writer.write(b"ERROR: Malformed payload format. Expecting valid JSON string.\n")
-        await writer.drain()
+        # 2. Extract twilight parameters
+        is_twilight = luminance < 35.0
+        if is_twilight:
+            print("┃  ┗━━ 🌗 Twilight shadow variance flagged. Adjusting logic bounds.")
+
+        # 3. Trigger Local GPU Accelerated VLM Processing Matrix
+        print(
+            f"┠─ 🧠 [VLM COMPUTE] Offloading tensor graphs to {MODEL_NAME} over local CUDA..."
+        )
+        analysis = await analyze_image_with_vlm(image_path, is_twilight=is_twilight)
+        category = analysis.get("suggested_category", "unknown")
+        print(f"┃  ┗━━ 🎯 Model Categorization Match -> {category}")
+
+        # 4. Commit Verbatim Analytics Directly into MemPalace CLI
+        print(
+            f"┠─ 🏛️ [MEMPALACE] Writing tracking matrices into Wing Memory Slot: {category}"
+        )
+        log_string = f"Timestamp: {now.isoformat()} | File: {filename} | Analysis: {analysis.get('detailed_log')}"
+        commit_to_mempalace(category, log_string)
+
+        archive_snapshot(image_path, date_str, time_str, analysis)
+        writer.write(b"SUCCESS: Analytics loop committed cleanly.\n")
+        print(
+            f"┗─ 🏁 [PIPELINE CLEAN] Channel sequence reset. Monitoring active filesystem hooks."
+        )
+
     except Exception as e:
-        print(f"[SERVER] Runtime Exception: {str(e)}")
-        writer.write(f"ERROR: Internal engine exception -> {str(e)}\n".encode("utf-8"))
-        await writer.drain()
+        writer.write(f"ERROR: Execution failure -> {str(e)}\n".encode("utf-8"))
+        print(f"❌ [CRITICAL RUNTIME ERROR]: {str(e)}")
     finally:
-        print("[SERVER] Client disconnected from engine.sock.")
+        await writer.drain()
         writer.close()
-        await writer.wait_closed()
 
 
 async def main():
-    # Force runtime environment directory tracking allocations
+    if os.path.exists(SOCKET_PATH):
+        os.remove(SOCKET_PATH)
     os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
 
-    # Prune stale, dead socket descriptors from past iterations
-    if os.path.exists(SOCKET_PATH):
-        print(f"[SERVER] Cleaning up old socket handle at {SOCKET_PATH}")
-        os.remove(SOCKET_PATH)
-
-    print(f"🤖 [SERVER] Initialized. Listening on UDS channel: {SOCKET_PATH}")
     server = await asyncio.start_unix_server(handle_client, path=SOCKET_PATH)
-
+    print(
+        f"🟢 [ONLINE] Core server engine successfully listening on domain socket: {SOCKET_PATH}"
+    )
     async with server:
-        try:
-            await server.serve_forever()
-        except KeyboardInterrupt:
-            print("\n[SERVER] Shutdown signal intercepted.")
+        await server.serve_forever()
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # Final cleanup pass to prevent leaving broken descriptors on disk
-        if os.path.exists(SOCKET_PATH):
-            os.remove(SOCKET_PATH)
-        print("[SERVER] Engine channel clean. Goodbye.")
+    asyncio.run(main())
