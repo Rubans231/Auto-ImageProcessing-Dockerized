@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-# Service 1: The Accelerated LLM Core Execution Layer
+  # Service 1: The Accelerated LLM Core Execution Layer
   ollama-core:
     image: ollama/ollama:latest
     container_name: ollama_core
@@ -55,7 +55,8 @@ services:
       - ./categories:/app/categories
       - ./workspace:/app/workspace  # Shared directory layout mapping
       - shared_socket:/app/run/img_engine
-      - mempalace_data:/app/run/mempalace_db
+      - ./run/mempalace_db:/app/run/mempalace_db # Map data right to your host folder
+      - ./mempalace_config.json:/root/.mempalace/config.json # Mount global config file
     depends_on:
       - ollama-core
 
@@ -76,5 +77,4 @@ services:
 
 volumes:
   ollama_storage:
-  mempalace_data:
   shared_socket: # Named volume allows IPC socket coordination between server and watcher

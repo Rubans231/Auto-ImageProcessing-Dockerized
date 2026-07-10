@@ -1,0 +1,6 @@
+{
+  "palace_path": "/app/run/mempalace_db",
+  "collection_name": "mempalace_drawers",
+  "people_map": {},
+  "max_backups": 10
+}

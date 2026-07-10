@@ -92,23 +92,29 @@ def commit_to_mempalace(category, log_string):
         f.write(log_string)
 
     try:
-        # Use the MemPalace CLI mining command to register the memory verbatim
-        # Mapping category directly to Wing keeps your databases safely separated
+        # 1. Structural Guard: Force initialization check for MemPalace workspace files
+        if not os.path.exists(os.path.join(PALACE_DIR, "mempalace.yaml")):
+            subprocess.run(
+                ["mempalace", "init"],
+                cwd=PALACE_DIR,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        # 2. Corrected Command Blueprint: Strip out --room entirely
+        cmd = ["mempalace", "mine", "--wing", category, tmp_log_path]
+
         subprocess.run(
-            [
-                "mempalace",
-                "mine",
-                tmp_log_path,
-                "--wing",
-                category,
-                "--room",
-                "environmental_drift",
-            ],
+            cmd,
             cwd=PALACE_DIR,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+    except subprocess.CalledProcessError as e:
+        # Catch and print the underlying shell error strings to debug problems instantly
+        error_msg = e.stderr.decode("utf-8").strip() if e.stderr else str(e)
+        print(f"⚠️ [WARNING] MemPalace CLI error: {error_msg}")
     except Exception as e:
         print(f"⚠️ [WARNING] MemPalace CLI ingestion pipe encountered a hitch: {e}")
     finally:
