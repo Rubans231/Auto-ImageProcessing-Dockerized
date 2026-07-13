@@ -48,8 +48,70 @@ def find_baseline_image(wing):
     return None
 
 
+PROCESSED_IMAGE_NAME = "processed.jpg"
+
+
+def get_previous_frame_path(wing):
+    """Returns the last-processed frame for this wing, if one exists — this is
+    what the CURRENT frame gets diffed against for timelapse (frame-to-frame)
+    comparison, as opposed to the fixed baseline.jpg comparison."""
+    if not wing or wing == "default":
+        return None
+    candidate = os.path.join(CATEGORIES_DIR, wing, PROCESSED_IMAGE_NAME)
+    return candidate if os.path.exists(candidate) else None
+
+
+def save_processed_image(wing, image_path):
+    """Saves a copy of the just-analyzed frame as categories/<wing>/processed.jpg.
+    This serves two purposes: (1) a visible "latest processed frame" artifact
+    sitting next to baseline.jpg, and (2) the "previous frame" reference the
+    *next* cycle will diff against for the timelapse journal."""
+    category_dir = os.path.join(CATEGORIES_DIR, wing)
+    os.makedirs(category_dir, exist_ok=True)
+    dest = os.path.join(category_dir, PROCESSED_IMAGE_NAME)
+    shutil.copy(image_path, dest)
+    return dest
+
+
+HISTORY_FILE_NAME = "history.md"
+
+
+def read_recent_history(wing, max_chars=2000):
+    """Reads the tail of categories/<wing>/history.md so the VLM can build on
+    what's already been logged instead of describing each frame in isolation."""
+    if not wing or wing == "default":
+        return None
+    history_path = os.path.join(CATEGORIES_DIR, wing, HISTORY_FILE_NAME)
+    if not os.path.exists(history_path):
+        return None
+    with open(history_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return content[-max_chars:] if content else None
+
+
+def append_history_entry(wing, timestamp_str, timelapse_update):
+    """Appends a new dated entry to categories/<wing>/history.md — the running
+    timelapse journal of periodic (frame-to-frame) changes, distinct from the
+    baseline-relative `detailed_log` committed to MemPalace per image."""
+    if not timelapse_update:
+        return
+    history_dir = os.path.join(CATEGORIES_DIR, wing)
+    os.makedirs(history_dir, exist_ok=True)
+    history_path = os.path.join(history_dir, HISTORY_FILE_NAME)
+    is_new_file = not os.path.exists(history_path)
+    with open(history_path, "a", encoding="utf-8") as f:
+        if is_new_file:
+            f.write(f"# Timelapse Journal — {wing}\n")
+        f.write(f"\n## {timestamp_str}\n\n{timelapse_update}\n")
+
+
 async def analyze_image_with_vlm(
-    image_path, is_twilight=False, folder_category="default", baseline_path=None
+    image_path,
+    is_twilight=False,
+    folder_category="default",
+    baseline_path=None,
+    previous_frame_path=None,
+    history_context=None,
 ):
     """Communicates directly with your local VLM layer with queue context."""
     filename = os.path.basename(image_path)
@@ -59,34 +121,54 @@ async def analyze_image_with_vlm(
             "Twilight transition timeline (dim lighting, high shadow casting bounds)."
         )
 
+    # Build the image list + a matching plain-English index so the model
+    # knows exactly which image is which, regardless of which ones exist.
+    images = []
+    image_order_notes = []
     if baseline_path:
-        baseline_note = (
-            "A baseline reference photo for this category is attached as the "
-            "FIRST image. The CURRENT frame under analysis is the SECOND image. "
-            "Compare the current frame directly against this specific baseline "
-            "and describe what has physically changed between the two."
+        images.append(baseline_path)
+        image_order_notes.append(
+            f"Image {len(images)}: BASELINE — fixed reference photo for this category."
         )
-        images = [baseline_path, image_path]
+    if previous_frame_path:
+        images.append(previous_frame_path)
+        image_order_notes.append(
+            f"Image {len(images)}: PREVIOUS FRAME — the last frame processed in this timelapse."
+        )
+    images.append(image_path)
+    image_order_notes.append(
+        f"Image {len(images)}: CURRENT FRAME — the new frame being analyzed right now."
+    )
+    image_order_block = "\n".join(image_order_notes)
+
+    if history_context:
+        history_block = (
+            f"PREVIOUSLY LOGGED TIMELAPSE ENTRIES (most recent):\n{history_context}"
+        )
     else:
-        baseline_note = (
-            "No baseline reference photo exists yet for this category. Describe "
-            "the scene on its own merits without a direct before/after comparison."
-        )
-        images = [image_path]
+        history_block = "No timelapse history logged yet — this is the first entry for this category."
 
     prompt = f"""
     You are an autonomous spatial analytics tracking agent monitoring long-term environmental drift.
-    Analyze the provided image(s) and extract physical shifts relative to the category baseline.
+    
+    IMAGES PROVIDED, IN ORDER:
+    {image_order_block}
+    
+    {history_block}
     
     CORE ENVIRONMENT RUNTIME DATA:
     - Target File Asset: {filename}
     - Dataset Source/Folder Queue: {folder_category}
     - Light Context Window: {time_context}
-    - Baseline Comparison: {baseline_note}
     
     CRITICAL INSTRUCTIONS:
-    Identify environmental alterations (canopy changes, leaf drop, tree structure, erosion, terrain shifts), 
-    count any human presence, and flag novel artifacts or missing objects compared to the baseline.
+    1. Compare the CURRENT frame against the BASELINE (if provided) and note
+       physical drift: canopy changes, leaf drop, tree structure, erosion,
+       terrain shifts, novel or missing objects, human presence.
+    2. SEPARATELY, compare the CURRENT frame against the PREVIOUS FRAME and
+       the timelapse entries above (if provided), and describe only what has
+       changed since that last cycle. Write it as the next entry in an
+       ongoing journal — build on what was already observed, don't repeat it.
     
     You MUST output a raw JSON object string matching exactly this schema layout:
     {{
@@ -97,7 +179,8 @@ async def analyze_image_with_vlm(
             "novel_objects_detected": ["item_a"],
             "missing_objects": []
         }},
-        "detailed_log": "A descriptive, natural, non-robotic analysis detailing the physical scene elements."
+        "detailed_log": "Baseline-relative description of the scene, for the permanent record.",
+        "timelapse_update": "1-3 plain sentences on what changed since the previous frame/entry. If there is no previous frame, say this establishes the timelapse starting point."
     }}
     Output ONLY the raw valid JSON string. Do not append Markdown code blocks, backticks, or conversational text.
     """
@@ -257,14 +340,22 @@ async def handle_client(reader, writer):
             f"┠─ [VLM COMPUTE] Offloading tensor graphs to {MODEL_NAME} over local CUDA..."
         )
         baseline_path = find_baseline_image(watcher_wing)
+        previous_frame_path = get_previous_frame_path(watcher_wing)
+        history_context = read_recent_history(watcher_wing)
         if baseline_path:
             print(f"┃  ┣━━ Baseline reference found: {baseline_path}")
+        if previous_frame_path:
+            print(
+                f"┃  ┣━━ Previous frame found for timelapse diff: {previous_frame_path}"
+            )
         # Pass the watcher directory category into the prompt context for better inference
         analysis = await analyze_image_with_vlm(
             image_path,
             is_twilight=is_twilight,
             folder_category=watcher_wing,
             baseline_path=baseline_path,
+            previous_frame_path=previous_frame_path,
+            history_context=history_context,
         )
 
         # Route to the explicitly watched folder wing unless it's default fallback
@@ -284,6 +375,15 @@ async def handle_client(reader, writer):
         )
         log_string = f"Timestamp: {now.isoformat()} | File: {filename} | Wing: {final_wing} | Room: {final_room or 'general'} | Analysis: {analysis.get('detailed_log')}"
         commit_to_mempalace(final_wing, final_room, log_string)
+
+        # 5. Append the timelapse journal entry and persist this frame as the
+        # "previous frame" reference for the next cycle's diff.
+        append_history_entry(
+            final_wing,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+            analysis.get("timelapse_update", "").strip(),
+        )
+        save_processed_image(final_wing, image_path)
 
         archive_snapshot(image_path, date_str, time_str, final_wing, analysis)
         writer.write(b"SUCCESS: Analytics loop committed cleanly.\n")
@@ -306,7 +406,7 @@ async def main():
 
     server = await asyncio.start_unix_server(handle_client, path=SOCKET_PATH)
     print(
-        f"🟢 [ONLINE] Core server engine successfully listening on domain socket: {SOCKET_PATH}"
+        f"[ONLINE] Core server engine successfully listening on domain socket: {SOCKET_PATH}"
     )
     async with server:
         await server.serve_forever()

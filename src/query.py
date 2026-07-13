@@ -36,12 +36,10 @@ def query_mempalace(wing, room, question):
         # This is the important fix: surface the ACTUAL mempalace error text
         # (e.stderr) instead of the generic "non-zero exit status" message.
         error_msg = e.stderr.strip() if e.stderr else str(e)
-        print(f"⚠️ [WARNING] MemPalace search failed: {error_msg}")
+        print(f"[WARNING] MemPalace search failed: {error_msg}")
         return "No historical records extracted."
     except Exception as e:
-        print(
-            f"⚠️ [WARNING] Failed to gather vector space fields from MemPalace CLI: {e}"
-        )
+        print(f"[WARNING] Failed to gather vector space fields from MemPalace CLI: {e}")
         return "No historical records extracted."
 
 
@@ -66,23 +64,27 @@ def ask_agent(category_wing, user_question):
         context_str = "No structural historical tracking entries registered for this location yet."
 
     prompt = f"""
-    You are an expert environmental analysis system evaluating historical camera timeline logs.
+    You are answering a quick factual question about historical camera logs.
     
-    HISTORICAL AUDIT LOG MEMORIES RECOVERED:
+    LOG MEMORIES RECOVERED:
     {context_str}
     
-    USER INVESTIGATION QUESTION:
+    QUESTION:
     {user_question}
     
-    Formulate a clear, descriptive, highly definitive, non-robotic conclusion summarizing the logs.
+    Answer in 2-4 plain, everyday sentences. No headers, no markdown, no
+    bullet points, no repeating the question back, no filler phrases like
+    "based on the analysis." Just the direct answer a person would say out
+    loud. If the recovered memories don't actually answer the question, say
+    so in one sentence instead of guessing.
     """
 
     print(
-        f"🧠 [THINKING] Processing context tokens through {MODEL_NAME} log analyzer matrix..."
+        f"[THINKING] Processing context tokens through {MODEL_NAME} log analyzer matrix..."
     )
     response = sync_client.generate(model=MODEL_NAME, prompt=prompt)
 
-    print("\n🕵️ [AGENT HISTORICAL REPORT]:")
+    print("\n[AGENT HISTORICAL REPORT]:")
     print("-" * 60)
     print(response["response"].strip())
     print("-" * 60)

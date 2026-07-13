@@ -1,74 +1,109 @@
-# System Architecture 
+# System Architecture
 
-This document outlines the multi-container microservice orchestration for the Autonomous Context Agent Pipeline, replacing the legacy local virtual environment (`.venv`) setup.
+This document outlines the multi-container microservice orchestration for the
+Autonomous Context Agent Pipeline.
 
-##  Core Architecture Diagram
+## Core Architecture Diagram
 
-The system operates as an event-driven loop across isolated container boundaries using Unix Domain Sockets (UDS) and local network bridges:
+The system is an event-driven loop across isolated container boundaries, using a
+Unix Domain Socket (UDS) for the watcher→server handoff and bind-mounted volumes
+for all durable state:
 
 ```mermaid
 graph TD
-    %% Subgraph for Admin/Seller Pipeline
-    subgraph AdminArea [Seller / Admin Area]
-        RPU[Raw Photo Upload] --> IP[Ingestion Pipeline]
-        IP --> CAM[Cleaned Assets & Metadata]
-        CAM -- "Store" --> DB[(Postgres & S3)]
+    subgraph Ingestion
+        CAM["Laptop webcam via cam_capture.py<br/>(SSHFS mount, separate machine)"] --> INPUT[("workspace/input/&lt;wing&gt;/")]
+        DROP["Manual / scripted drop"] --> INPUT
+        INPUT -->|watchdog on_closed event| WATCHER[agent-watcher]
     end
 
-    %% Subgraph for Customer Facing Stack
-    subgraph UserArea [User / Customer Area]
-        US[User Selfie]
-        SQ[Search Query]
-        VTON[VTON Pipeline]
-        SE[Search Engine]
-        TOR[Try-On Result]
-        CUI[Catalogue UI]
-
-        US --> VTON
-        SQ --> SE
-        VTON --> TOR
-        SE --> CUI
+    subgraph AgentServer["agent-server"]
+        WATCHER -->|"UDS: {image_path, wing, room}"| SERVER[server.py]
+        SERVER -->|luminance pre-filter| SERVER
+        SERVER -->|"image(s) + history tail"| VLM["Ollama: gemma4:e4b"]
+        VLM -->|"JSON: detailed_log + timelapse_update"| SERVER
     end
 
-    %% Cross-Boundary Microservice Connections
-    DB -- "Fetch Assets" --> VTON
-    DB -- "Results" --> SE
-    SE -- "Hybrid Search" --> DB
+    subgraph Persistence
+        SERVER -->|append| HISTORY[("categories/&lt;wing&gt;/history.md")]
+        SERVER -->|overwrite| PROCESSED[("categories/&lt;wing&gt;/processed.jpg")]
+        SERVER -->|"stage, then mine"| PENDING[("categories/&lt;wing&gt;/logs/pending")]
+        PENDING -->|"mempalace mine --wing"| PALACE[("run/mempalace_db")]
+        SERVER -->|"copy + analytics_conclusion.json"| SNAP[("snapshots/&lt;wing&gt;/&lt;date&gt;/&lt;time&gt;")]
+    end
 
-    %% Component Styling Layout Configurations
-    style AdminArea fill:#222,stroke:#555,stroke-width:1px,color:#fff
-    style UserArea fill:#222,stroke:#555,stroke-width:1px,color:#fff
-    
+    subgraph QueryPath["Query (on demand)"]
+        QUERY[query.py] -->|"mempalace search --wing --room"| PALACE
+        QUERY -->|"context + question"| VLM
+    end
+
     classDef box fill:#111,stroke:#666,stroke-width:1px,color:#fff;
-    classDef storage fill:#111,stroke:#666,stroke-width:2px,color:#fff;
-    
-    class RPU,IP,CAM,US,SQ,VTON,SE,TOR,CUI box;
-    class DB storage;
+    class CAM,DROP,INPUT,WATCHER,SERVER,VLM,HISTORY,PROCESSED,PENDING,PALACE,SNAP,QUERY box;
 ```
+
 ---
 
-##  Container Layout & Service Responsibilities
+## Container Layout & Service Responsibilities
 
 ### 1. `agent-watcher`
-* **Runtime:** Python 3.11-slim
-* **Dependencies:** `watchdog`, `pillow`
-* **Purpose:** Mounts the host machine's `workspace/input/` directory via a Docker volume. It continuously monitors for file creation events (e.g., asset drops like `.jpg`, `.png`). Upon discovery, it passes the file metadata down the line.
+- **Runtime:** Python 3.11-slim
+- **Dependencies:** `watchdog`, `pillow`
+- **Purpose:** Mounts `workspace/input/` via a Docker volume and monitors for file
+  creation events (`.jpg`, `.png`). On each finalized write, it resolves the wing
+  (and room, if the file sits two folders deep) from the relative path and
+  dispatches `{image_path, wing, room}` to `agent-server` over the UDS socket.
 
 ### 2. `agent-server`
-* **Runtime:** Python 3.11-slim
-* **Dependencies:** `ollama`, `mempalace`
-* **Purpose:** Intercepts incoming file pathways over an internal IPC channel. It calculates local image metrics (like L1 luminance intensity filtering) and orchestrates structural prompts out to the local VLM engine.
+- **Runtime:** Python 3.11-slim
+- **Dependencies:** `ollama`, `mempalace`, `pillow`
+- **Purpose:** Listens on the UDS socket. Runs the L1 luminance pre-filter, then
+  calls the local VLM (Ollama, `gemma4:e4b`) with the current frame plus whatever
+  category context exists — `baseline.jpg`, the last `processed.jpg`, and the tail
+  of `history.md`. Persists results to `categories/`, `snapshots/`, and stages +
+  mines logs into MemPalace.
 
-### 3. `mempalace_db`
-* **Image:** Independent Microservice
-* **Configuration:** `run/mempalace_db/mempalace.yaml`
-* **Purpose:** Acts as the persistent vector memory layer. It isolates storage boundaries, entity spaces, and contextual tracks without bloating the core application scripts.
+### 3. MemPalace (CLI, not a separate container)
+- **Installed into:** `agent-server`'s image (`pip install mempalace`)
+- **Config:** `run/mempalace_db/` (bind-mounted; `mempalace_config.json` points
+  `palace_path` here)
+- **Purpose:** Persistent vector memory layer, isolated by wing/room. Invoked as a
+  subprocess from `server.py` (`mempalace mine`) and `query.py` (`mempalace search`)
+  — there is no standalone MemPalace container/image in this stack.
+
+### 4. `ollama` (host or sidecar, CUDA-accelerated)
+- **Purpose:** Serves the `gemma4:e4b` multimodal model that `agent-server` calls
+  over HTTP (`OLLAMA_HOST`).
 
 ---
 
-## ⚙️ Daily Workflow Commands
+## Per-Category Storage Layout
 
-### Starting the Ecosystem
-To boot up the entire background cluster (watcher, processing server, network hooks, and storage nodes):
+```text
+categories/<wing>/
+├── baseline.jpg        # optional — fixed reference photo for this wing
+├── processed.jpg        # auto-managed — last frame processed (also the
+│                         #   "previous frame" reference for the next timelapse diff)
+├── history.md            # auto-managed — running timelapse journal
+└── logs/
+    ├── pending/<room>/    # staged log files awaiting the next `mempalace mine`
+    └── mined/<room>/       # archived after a successful mine (never re-mined)
+```
+
+---
+
+## Daily Workflow Commands
+
+### Starting the ecosystem
 ```bash
-docker compose up -d
+docker compose up -d --build
+```
+
+### Tailing logs
+```bash
+docker compose logs -f agent-server agent-watcher
+```
+
+### Checking what's actually stored
+```bash
+docker compose exec agent-server mempalace status
+```
