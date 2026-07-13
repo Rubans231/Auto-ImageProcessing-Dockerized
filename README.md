@@ -1,37 +1,85 @@
 # Autonomous Context Agent Pipeline
 
-An intelligent, microservice-based autonomous image analytics pipeline. It combines kernel-level filesystem events with generative local vision models to provide a seamless, low-overhead contextual logging and environmental monitoring platform.
+An intelligent, microservice-based image analytics pipeline. It combines kernel-level
+filesystem events with a locally-run vision-language model to provide low-overhead
+environmental drift monitoring and contextual logging, backed by a local vector
+memory layer ([MemPalace](https://mempalaceofficial.com)).
 
 ## Features
 
-* **L1 Luminance Filter:** Automatically calculates frame exposure metrics to instantly drop zero-visibility nocturnal frames, saving active GPU compute cycles.
-* **Decoupled Architecture:** Built on top of an asynchronous IPC loop over local Unix Domain Sockets (UDS), isolating the lightweight filesystem listener from the heavy token processing runtime.
-* **Local Memory Matrix:** Programmatically commits semantic tracking data directly to a persistent, localized vector space database (MemPalace), keeping environmental records separated by logical wings.
+- **L1 Luminance Filter** — calculates frame exposure metrics to instantly drop
+  zero-visibility nocturnal frames, saving GPU compute cycles.
+- **Decoupled architecture** — an async IPC loop over a Unix Domain Socket (UDS)
+  isolates the lightweight filesystem watcher from the VLM processing runtime.
+- **Baseline comparison** — each category can define a `baseline.jpg` reference
+  photo; every new frame is compared directly against it by the VLM.
+- **Timelapse journal** — a separate, running `history.md` log per category tracks
+  incremental frame-to-frame change, distinct from the baseline-relative record.
+- **Local memory matrix** — commits semantic tracking data to MemPalace, organized
+  into wings (category) and rooms (sub-topic), queryable in plain English.
+- **Live camera ingestion** — feed a webcam on a separate machine into the hot-folder
+  over SSHFS; see [`cam_capture.py`](../cam_capture.py).
 
 ## Documentation
 
-* **Initial Blueprint:** [Initial Blueprint](docs/Initial-Blueprint.md) – Project masterplan, cognitive evaluation lifecycle loops, and foundational data management schemas.
-* **System Architecture:** [System Architecture & Lifecycle Guide](docs/architecture.md) — Detailed microservice definitions, container topology diagrams, and orchestration maintenance instructions.
-* **Deployment Guide:** [Deployment Guide](docs/DEPLOYMENT.md) — Exhaustive container initialization walkthroughs, hardware acceleration profiles, and persistence layer verification steps.
+- **Initial Blueprint:** [Initial Blueprint](Initial-Blueprint.md) — original project masterplan.
+- **System Architecture:** [System Architecture & Lifecycle Guide](architecture.md) — service topology and data flow.
+- **Deployment Guide:** [Deployment Guide](DEPLOYMENT.md) — container setup, verification, and live-camera setup.
 
 ## Quick Start (Docker Compose)
 
-Best for local testing with GPU support.
-
-### 1. Clone & Setup:
+### 1. Clone & set up
 
 ```bash
 git clone <repository-url>
 cd Auto-ImageProcessing-Dockerized
+```
 
-2. Run Backend & Services:
+### 2. Start the stack
 
-docker-compose up --build
+```bash
+docker compose up -d --build
+```
 
-3. Use:
+### 3. Drop images to trigger analysis
 
-- Ingestion Hot-Folder: Drop raw daylight snapshots (.jpg, .png) directly into workspace/input/ to trigger the automated evaluation sequence.
+Drop a `.jpg`/`.png` directly into a category folder to tag it explicitly, or into
+`workspace/input/` on its own to let the VLM suggest a category:
 
-- Query Console: Execute conversational analysis inquiries against past dataset logs using your terminal space:
+```bash
+cp my_photo.jpg workspace/input/robinson2/
+```
 
-uv run python src/query.py <category_wing_folder> "<your analytical question>"
+Optional per-category assets (all under `categories/<wing>/`):
+
+| File/Folder | Purpose |
+|---|---|
+| `baseline.jpg` | Fixed reference photo the VLM compares every new frame against |
+| `processed.jpg` | Auto-generated copy of the last frame processed (also the "previous frame" reference for the timelapse diff) |
+| `history.md` | Auto-generated running timelapse journal |
+| `logs/` | Staged/mined log files feeding MemPalace (managed automatically) |
+
+### 4. Query past analysis
+
+```bash
+docker compose exec agent-server python src/query.py <wing> "<your question>"
+```
+
+`<wing>` accepts either a plain category name (`robinson2`) or `wing/room`
+(`robinson2/general`) if you're using rooms. Example:
+
+```bash
+docker compose exec agent-server python src/query.py robinson2 "what changed recently?"
+```
+
+For the raw, unsummarized MemPalace search results (useful for debugging):
+
+```bash
+docker compose exec agent-server mempalace search "<question>" --wing robinson2
+```
+
+### 5. Monitor logs
+
+```bash
+docker compose logs -f agent-server agent-watcher
+```
