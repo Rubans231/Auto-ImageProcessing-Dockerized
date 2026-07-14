@@ -19,12 +19,27 @@ class DirectedCategoryHandler(FileSystemEventHandler):
         self.loop = loop
 
     def on_created(self, event):
-        # Ignore raw directory creation events
+        self._handle_new_file(event)
+
+    def on_moved(self, event):
+        # IMPORTANT: many copy tools and file managers write a temp file
+        # then rename() it into its final name once the write is complete
+        # (an atomic-write pattern, common enough that it's the actual cause
+        # of "the last file in a batch never got processed" — that file was
+        # never `created` in the directory at all, it was moved/renamed into
+        # it, which watchdog reports as on_moved, not on_created).
+        # dest_path is where the file ended up; that's what we care about.
+        self._handle_new_file(event, path=event.dest_path)
+
+    def _handle_new_file(self, event, path=None):
+        file_path = path or event.src_path
+
+        # Ignore raw directory creation/move events
         if event.is_directory:
             return
 
         # Target only incoming image assets
-        file_ext = os.path.splitext(event.src_path)[1].lower()
+        file_ext = os.path.splitext(file_path)[1].lower()
         if file_ext in [".jpg", ".jpeg", ".png", ".webp"]:
             # Extract relative directory structure to determine wing/room.
             # NOTE: MemPalace's data model is two-level (wing, then room),
@@ -34,7 +49,7 @@ class DirectedCategoryHandler(FileSystemEventHandler):
             #   workspace/input/robinson2/img.jpg             -> wing=robinson2, room=None
             #   workspace/input/Terrestrial/Forestry/img.jpg  -> wing=Terrestrial, room=Forestry
             # Anything nested deeper than 2 levels still only uses the first two.
-            relative_path = os.path.relpath(event.src_path, WATCH_DIR)
+            relative_path = os.path.relpath(file_path, WATCH_DIR)
             path_parts = relative_path.split(os.sep)
 
             if len(path_parts) >= 3:
@@ -45,13 +60,13 @@ class DirectedCategoryHandler(FileSystemEventHandler):
                 wing, room = "default", None
 
             print(
-                f"\n[WATCHER] Detected asset drop: {os.path.basename(event.src_path)} "
+                f"\n[WATCHER] Detected asset drop: {os.path.basename(file_path)} "
                 f"Wing/Room Queue: [{wing}/{room or '-'}]"
             )
 
             # Thread-safe dispatch back to the main async event socket runner loop
             asyncio.run_coroutine_threadsafe(
-                self.send_to_server(event.src_path, wing, room), self.loop
+                self.send_to_server(file_path, wing, room), self.loop
             )
 
     async def send_to_server(self, image_path, wing, room):
