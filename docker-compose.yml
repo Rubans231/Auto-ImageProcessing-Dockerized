@@ -73,6 +73,33 @@ services:
     depends_on:
       - agent-server
 
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      - OLLAMA_HOST=http://ollama-core:11434
+    volumes:
+      - ./src:/app/src
+      - ./categories:/app/categories:ro
+      - ./snapshots:/app/snapshots:ro
+      - ./run/mempalace_db:/app/run/mempalace_db:ro
+    depends_on:
+      - ollama-core
+    restart: unless-stopped
+    # Not exposed to the host directly — the frontend's nginx proxies to it
+    # over the compose network. If you want to hit the API directly for
+    # debugging, temporarily add: ports: ["8420:8420"]
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8085:80"
+    depends_on:
+      - api-server
+    restart: unless-stopped
+
 volumes:
   ollama_storage:
   shared_socket: # Named volume allows IPC socket coordination between server and watcher
