@@ -18,7 +18,7 @@ memory layer ([MemPalace](https://mempalaceofficial.com)).
 - **Local memory matrix** — commits semantic tracking data to MemPalace, organized
   into wings (category) and rooms (sub-topic), queryable in plain English.
 - **Live camera ingestion** — feed a webcam on a separate machine into the hot-folder
-  over SSHFS; see [`cam_capture.py`](../cam_capture.py).
+  over SSHFS; see [`cam_capture.py`](../src/cam_capture.py).
 
 ## Documentation
 
@@ -83,3 +83,28 @@ docker compose exec agent-server mempalace search "<question>" --wing robinson2
 ```bash
 docker compose logs -f agent-server agent-watcher
 ```
+
+## Dashboard
+
+A browser dashboard is available at `http://localhost:8080` once `api-server`
+and `frontend` are running (see `docker-compose.additions.yml`). It covers:
+
+- **Overview** — baseline vs. latest frame, the core-sample timeline, the
+  timelapse journal, and plain-English search
+- **Snapshot Logs** — a full detail table per snapshot (novel/missing
+  objects, human counts, complete log text)
+- **Graphs** — drift events and people-detected counts over time, updating
+  live via server-sent events
+- **Add Frames** — drop a batch of images (queued client-side, uploads a
+  couple at a time), drop a video (choose frame-extraction mode per upload —
+  every frame, or every N seconds), or capture directly from the browser's
+  own camera. A capture-interval **Settings** panel (⚙, top right) applies
+  globally or per-category
+- **Browse Files** — read-only browser over `categories/`, `snapshots/`, and
+  `workspace/input/`, with download links
+
+Note: browser camera capture requires a secure context (`localhost` or
+HTTPS) — browsers block camera access otherwise. For a camera on a
+*different* machine, use [`cam_capture.py`](../src/cam_capture.py) instead
+(see the Deployment guide); that path still works independently of the
+dashboard's browser-capture option.
