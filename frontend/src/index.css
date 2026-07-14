@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+/* Subtle topographic contour texture, used sparingly behind headers */
+.contour-bg {
+  background-image: repeating-radial-gradient(
+    circle at 15% 20%,
+    transparent 0,
+    transparent 22px,
+    rgba(124, 148, 115, 0.05) 23px,
+    rgba(124, 148, 115, 0.05) 24px
+  );
+}
+
+/* Core sample layers: subtle horizontal grain, like sediment */
+.core-layer {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 3px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+}
+
+.stamp {
+  transform: rotate(-4deg);
+  border: 2px solid currentColor;
+  letter-spacing: 0.08em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #14181b;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a4440;
+  border-radius: 4px;
+}
