@@ -18,13 +18,13 @@ memory layer ([MemPalace](https://mempalaceofficial.com)).
 - **Local memory matrix** — commits semantic tracking data to MemPalace, organized
   into wings (category) and rooms (sub-topic), queryable in plain English.
 - **Live camera ingestion** — feed a webcam on a separate machine into the hot-folder
-  over SSHFS; see [`cam_capture.py`](../src/cam_capture.py).
+  over SSHFS; see [`cam_capture.py`](/src/cam_capture.py).
 
 ## Documentation
 
-- **Initial Blueprint:** [Initial Blueprint](Initial-Blueprint.md) — original project masterplan.
-- **System Architecture:** [System Architecture & Lifecycle Guide](architecture.md) — service topology and data flow.
-- **Deployment Guide:** [Deployment Guide](DEPLOYMENT.md) — container setup, verification, and live-camera setup.
+- **Initial Blueprint:** [Initial Blueprint](docs/Initial-Blueprint.md) — original project masterplan.
+- **System Architecture:** [System Architecture & Lifecycle Guide](docs/architecture.md) — service topology and data flow.
+- **Deployment Guide:** [Deployment Guide](docs/DEPLOYMENT.md) — container setup, verification, and live-camera setup.
 
 ## Quick Start (Docker Compose)
 
@@ -105,6 +105,6 @@ and `frontend` are running (see `docker-compose.additions.yml`). It covers:
 
 Note: browser camera capture requires a secure context (`localhost` or
 HTTPS) — browsers block camera access otherwise. For a camera on a
-*different* machine, use [`cam_capture.py`](../src/cam_capture.py) instead
+*different* machine, use [`cam_capture.py`](/src/cam_capture.py) instead
 (see the Deployment guide); that path still works independently of the
 dashboard's browser-capture option.
